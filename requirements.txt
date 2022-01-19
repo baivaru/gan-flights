@@ -1,0 +1,5 @@
+lxml
+beautifulsoup4
+fastapi
+jinja2
+uvicorn
