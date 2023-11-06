@@ -1,8 +1,13 @@
+import os
+
 import requests
 # pip install lxml; html.parser is weird
 import lxml
 # pip install beautifulsoup4
 from bs4 import BeautifulSoup as bs
+import aiohttp
+import pickle
+import time
 
 # pip install fastapi, pip install uvicorn (for local server), pip install jinja2 (for templates)
 from fastapi import FastAPI, Request
@@ -13,12 +18,16 @@ from fastapi.templating import Jinja2Templates
 app = FastAPI()
 templates = Jinja2Templates(directory="templates")
 
+CACHE_EXPIRATION_TIME_SECONDS = 150
+CACHE_FILE = 'data_cache.pkl'
 
-async def scrape_data():
-    # initial data request
-    req = requests.get("https://www.ganairport.com/flight-informations")
-    # soupify data
-    soup = bs(req.content, "lxml")
+
+async def scrape_data_from_website():
+    async with aiohttp.ClientSession() as session:
+        async with session.get("https://www.ganairport.com/flight-informations") as resp:
+            content = await resp.text()
+
+    soup = bs(content, "lxml")
 
     # find those weird arrival and departure tables
     table = soup.find_all(
@@ -69,18 +78,45 @@ async def scrape_data():
     return (arrivals, departures)
 
 
+async def load_cache():
+    if os.path.exists(CACHE_FILE):
+        with open(CACHE_FILE, 'rb') as file:
+            cache_timestamp, arrivals, departures = pickle.load(file)
+        if time.time() - cache_timestamp <= CACHE_EXPIRATION_TIME_SECONDS:
+            return cache_timestamp, arrivals, departures
+    return None, None
+
+
+async def save_cache(arrivals, departures):
+    cache_timestamp = time.time()
+    with open(CACHE_FILE, 'wb') as file:
+        pickle.dump((cache_timestamp, arrivals, departures), file)
+
+
+async def scrape_data():
+    cache_timestamp, arrivals, departures = await load_cache()
+
+    if arrivals is None or departures is None:
+        arrivals, departures = await scrape_data_from_website()
+        await save_cache(arrivals, departures)
+
+    return cache_timestamp, arrivals, departures
+
+
+
 # homepage
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)
 async def home(request: Request):
     arrivals, departures = await scrape_data()
-    return templates.TemplateResponse('index.html', {'request': request, "arrivals": arrivals, "departures": departures})
+    return templates.TemplateResponse('index.html',
+                                      {'request': request, "arrivals": arrivals, "departures": departures})
 
 
 # fastapi endpoint
 @app.get("/api/")
 async def root():
     # get the data
-    arrivals, departures = await scrape_data()
+    cache_timestamp, arrivals, departures = await scrape_data()
     # return the data
     return {
         'app': 'Gan-Flights',
@@ -88,6 +124,7 @@ async def root():
         'version': '0.0.1',
         'project': 'https://github.com/baivaru/gan-flights',
         'author': 'Mohamed Aruham',
+        'last_scraped_datetime': cache_timestamp,
         'departures': departures,
         'arrivals': arrivals
     }
