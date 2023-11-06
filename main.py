@@ -84,7 +84,7 @@ async def load_cache():
             cache_timestamp, arrivals, departures = pickle.load(file)
         if time.time() - cache_timestamp <= CACHE_EXPIRATION_TIME_SECONDS:
             return cache_timestamp, arrivals, departures
-    return None, None
+    return None, None, None
 
 
 async def save_cache(arrivals, departures):
