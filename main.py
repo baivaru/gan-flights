@@ -107,7 +107,7 @@ async def scrape_data():
 # homepage
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)
 async def home(request: Request):
-    arrivals, departures = await scrape_data()
+    cache_timestamp, arrivals, departures = await scrape_data()
     return templates.TemplateResponse('index.html',
                                       {'request': request, "arrivals": arrivals, "departures": departures})
 
